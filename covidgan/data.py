@@ -58,11 +58,23 @@ def load_ieee_covid_chestxray(root: str, views: Sequence[str] = ("PA", "AP")) ->
     return paths
 
 
+SKIP_DIR_NAMES = {"mask", "masks", "label", "labels", "lung masks", "lung_masks"}
+
+
 def load_image_folder(root: str) -> List[Path]:
-    """Collect every image directly under a flat folder (e.g. a Kaggle
-    'Normal' class directory, or a manually curated COVID-CXR folder)."""
+    """Collect every image under a folder (e.g. a Kaggle 'Normal' class
+    directory, or a manually curated COVID-CXR folder), skipping any
+    subdirectory that looks like segmentation masks/labels rather than CXR
+    photos -- several public CXR datasets (including the Kaggle COVID-19
+    Radiography Database) ship a masks/ folder alongside images/ with the
+    same filenames, which would otherwise silently double-count as images.
+    """
     root = Path(root)
-    return sorted(p for p in root.rglob("*") if p.suffix.lower() in IMG_EXTS)
+    return sorted(
+        p for p in root.rglob("*")
+        if p.suffix.lower() in IMG_EXTS
+        and not (SKIP_DIR_NAMES & {part.lower() for part in p.parts})
+    )
 
 
 # --------------------------------------------------------------------------

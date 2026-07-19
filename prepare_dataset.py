@@ -17,6 +17,7 @@ public sources and de-duplicating -- see README.md for where to get them.
 """
 import argparse
 import csv
+import random
 from pathlib import Path
 
 from covidgan.data import (
@@ -41,6 +42,14 @@ def main():
     ap.add_argument("--test-normal", type=int, default=120, help="Paper default: 120")
     ap.add_argument("--test-frac", type=float, default=0.17,
                      help="Used instead of --test-covid/--test-normal if the dataset is too small for those exact counts.")
+    ap.add_argument("--max-covid", type=int, default=None,
+                     help="Randomly subsample down to this many COVID-CXR images (after dedup) before splitting. "
+                          "Pass 403 to match the paper's exact scale -- public sources like the Kaggle Radiography "
+                          "Database are far larger than what the paper used, and training on all of it defeats the "
+                          "paper's small-data premise.")
+    ap.add_argument("--max-normal", type=int, default=None,
+                     help="Randomly subsample down to this many Normal-CXR images (after dedup). Pass 721 to match "
+                          "the paper's exact scale.")
     ap.add_argument("--seed", type=int, default=999)
     args = ap.parse_args()
 
@@ -63,6 +72,14 @@ def main():
     covid_paths = dedupe(covid_paths)
     normal_paths = dedupe(normal_paths)
     print(f"After hash-based de-duplication: {len(covid_paths)} COVID-CXR, {len(normal_paths)} Normal-CXR.")
+
+    rng = random.Random(args.seed)
+    if args.max_covid is not None and len(covid_paths) > args.max_covid:
+        covid_paths = rng.sample(covid_paths, args.max_covid)
+    if args.max_normal is not None and len(normal_paths) > args.max_normal:
+        normal_paths = rng.sample(normal_paths, args.max_normal)
+    if args.max_covid is not None or args.max_normal is not None:
+        print(f"After subsampling: {len(covid_paths)} COVID-CXR, {len(normal_paths)} Normal-CXR.")
 
     test_covid = args.test_covid if len(covid_paths) >= args.test_covid + 10 else None
     test_normal = args.test_normal if len(normal_paths) >= args.test_normal + 10 else None
