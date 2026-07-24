@@ -1,5 +1,9 @@
 data/
+data_src/
 runs/
 _smoketest_*/
 __pycache__/
 *.pyc
+
+# Local-only notebook (uses the local checkout, not the GitHub clone)
+CovidGAN_Local_SameSource.ipynb

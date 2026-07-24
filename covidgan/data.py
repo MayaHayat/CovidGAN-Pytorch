@@ -77,6 +77,28 @@ def load_image_folder(root: str) -> List[Path]:
     )
 
 
+def load_same_source(root: str, covid_subdir: str = "COVID",
+                     normal_subdir: str = "Normal") -> Tuple[List[Path], List[Path]]:
+    """Collect COVID-CXR and Normal-CXR paths from a SINGLE dataset root that
+    ships per-class subfolders (e.g. the Kaggle COVID-19 Radiography Database's
+    COVID/ and Normal/ directories).
+
+    Drawing both classes from one source -- with one acquisition and
+    post-processing pipeline -- removes the cross-source shortcut that
+    otherwise lets a classifier separate the classes on non-pathological cues
+    (resolution, borders, embedded text, brightness curves) instead of lung
+    pathology. Use this as an A/B against the default multi-source collection
+    to measure how much of the accuracy is source bias rather than signal.
+
+    Returns (covid_paths, normal_paths). Both are gathered with the same
+    load_image_folder() collector, so mask/label subfolders are skipped.
+    """
+    root = Path(root)
+    covid = load_image_folder(root / covid_subdir)
+    normal = load_image_folder(root / normal_subdir)
+    return covid, normal
+
+
 # --------------------------------------------------------------------------
 # Deduplication
 # --------------------------------------------------------------------------

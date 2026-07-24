@@ -62,6 +62,25 @@ the paper's "Image Hashing method"), and writes a stratified `data/manifest.csv`
 paper's exact split (331/72 COVID train/test, 601/120 Normal train/test) when there's enough data,
 otherwise a proportional fallback.
 
+### Same-source split (source-bias A/B)
+
+The default collection draws COVID and Normal from **different** datasets, so a classifier can
+separate the classes on non-pathological cues (resolution, borders, embedded text, brightness) —
+a shortcut that inflates accuracy above the paper's. To measure how much of the accuracy is real
+signal vs. this source bias, pull **both** classes from one dataset's per-class subfolders with a
+single processing pipeline:
+
+```bash
+python prepare_dataset.py \
+    --same-source-root /path/to/COVID-19_Radiography_Dataset \
+    --max-covid 403 --max-normal 721 \
+    --out-dir data
+```
+
+`--same-source-root` expects `COVID/` and `Normal/` subfolders under one root (override the names
+with `--covid-subdir` / `--normal-subdir`). If CNN-AD accuracy drops toward the paper's 85% under
+this split, the earlier lift was cross-source artifact, not COVID-19 signal.
+
 ## Pipeline
 
 ```bash
