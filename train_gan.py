@@ -18,18 +18,22 @@ import torchvision.utils as vutils
 from torch.utils.data import DataLoader
 
 from covidgan.data import CXRDataset, read_manifest
-from covidgan.models import Discriminator, Generator, count_params
+from covidgan.models import Discriminator, Generator, count_params, pick_device
 
 
 def train(args):
-    device = torch.device("cuda" if torch.cuda.is_available() and not args.cpu else "cpu")
+    device = pick_device("cpu" if args.cpu else args.device)
     print(f"device: {device}")
 
     train_items = read_manifest(args.manifest, "train")
-    dataset = CXRDataset(train_items, image_size=112, value_range="tanh")
+    dataset = CXRDataset(train_items, image_size=112, value_range="tanh", cache=args.cache)
+    # With the whole dataset already decoded in RAM, worker processes only add
+    # inter-process copying overhead, so load in-process when cached.
+    workers = 0 if args.cache else args.workers
     loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True,
-                         num_workers=args.workers, drop_last=True)
-    print(f"training images: {len(dataset)}")
+                         num_workers=workers, drop_last=True)
+    print(f"training images: {len(dataset)}"
+          + (" (cached in RAM)" if args.cache else ""))
 
     netG = Generator().to(device)
     netD = Discriminator().to(device)
@@ -111,8 +115,15 @@ if __name__ == "__main__":
     ap.add_argument("--batch-size", type=int, default=64)
     ap.add_argument("--lr", type=float, default=2e-4)
     ap.add_argument("--beta1", type=float, default=0.5)
-    ap.add_argument("--workers", type=int, default=2)
+    ap.add_argument("--workers", type=int, default=2,
+                     help="DataLoader worker processes (ignored when --cache is on).")
     ap.add_argument("--sample-every", type=int, default=10)
     ap.add_argument("--checkpoint-every", type=int, default=100)
-    ap.add_argument("--cpu", action="store_true", help="Force CPU even if CUDA is available.")
+    ap.add_argument("--device", default="auto",
+                     help="auto (cuda > mps > cpu), or force cuda / mps / cpu. "
+                          "'mps' uses the Apple-silicon GPU on M-series Macs.")
+    ap.add_argument("--cache", action=argparse.BooleanOptionalAction, default=True,
+                     help="Preload+resize all images into RAM once (default on; the dataset is "
+                          "tiny). Use --no-cache to decode from disk every epoch.")
+    ap.add_argument("--cpu", action="store_true", help="Force CPU (shorthand for --device cpu).")
     train(ap.parse_args())
