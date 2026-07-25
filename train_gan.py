@@ -8,6 +8,12 @@ Hyperparameters default to the paper's: batch 64, lr 2e-4, Adam beta1 0.5,
 class head. On CPU this is impractically slow for the full 2000 epochs
 (the paper reports ~5h on an RTX 2060) -- use --epochs to cut it down for a
 smoke test, or run on a CUDA machine for a full reproduction.
+
+Long runs checkpoint every --checkpoint-every epochs (generator, discriminator
+and optimizer state). Pass --resume <checkpoint> to continue an interrupted run
+from where it stopped, e.g.:
+
+    python train_gan.py --out-dir runs/gan --resume runs/gan/checkpoints/covidgan_epoch1000.pt
 """
 import argparse
 from pathlib import Path
@@ -48,10 +54,33 @@ def train(args):
     (out_dir / "samples").mkdir(parents=True, exist_ok=True)
     (out_dir / "checkpoints").mkdir(parents=True, exist_ok=True)
 
+    # Optionally resume: restore generator, discriminator and (if present) the
+    # optimizer state, then continue from the saved epoch. Lets a long 2000-epoch
+    # run survive interruptions (e.g. a free-Colab session drop). Checkpoints
+    # written before this feature have no optimizer state; those still load
+    # (weights only) and just restart Adam's momentum.
+    start_epoch = 0
+    if args.resume:
+        ckpt = torch.load(args.resume, map_location=device)
+        netG.load_state_dict(ckpt["generator"])
+        netD.load_state_dict(ckpt["discriminator"])
+        if "opt_g" in ckpt and "opt_d" in ckpt:
+            opt_g.load_state_dict(ckpt["opt_g"])
+            opt_d.load_state_dict(ckpt["opt_d"])
+        else:
+            print("resume: checkpoint has no optimizer state; restarting Adam momentum.")
+        start_epoch = int(ckpt.get("epoch", 0))
+        print(f"resumed from {args.resume} at epoch {start_epoch}")
+
+    def save_checkpoint(path, epoch):
+        torch.save({"generator": netG.state_dict(), "discriminator": netD.state_dict(),
+                    "opt_g": opt_g.state_dict(), "opt_d": opt_d.state_dict(),
+                    "epoch": epoch}, path)
+
     eval_z = netG.sample_z(16, device=device)
     eval_labels = torch.arange(16, device=device) % 2
 
-    for epoch in range(args.epochs):
+    for epoch in range(start_epoch, args.epochs):
         g_loss_sum = d_loss_sum = 0.0
         for real_imgs, real_labels in loader:
             real_imgs = real_imgs.to(device)
@@ -97,13 +126,9 @@ def train(args):
                                nrow=4, normalize=True, value_range=(-1, 1))
 
         if (epoch + 1) % args.checkpoint_every == 0 or epoch == args.epochs - 1:
-            torch.save(
-                {"generator": netG.state_dict(), "discriminator": netD.state_dict(), "epoch": epoch + 1},
-                out_dir / "checkpoints" / f"covidgan_epoch{epoch+1:04d}.pt",
-            )
+            save_checkpoint(out_dir / "checkpoints" / f"covidgan_epoch{epoch+1:04d}.pt", epoch + 1)
 
-    torch.save({"generator": netG.state_dict(), "discriminator": netD.state_dict(), "epoch": args.epochs},
-               out_dir / "checkpoints" / "covidgan_final.pt")
+    save_checkpoint(out_dir / "checkpoints" / "covidgan_final.pt", args.epochs)
     print(f"done. final checkpoint: {out_dir / 'checkpoints' / 'covidgan_final.pt'}")
 
 
@@ -126,4 +151,8 @@ if __name__ == "__main__":
                      help="Preload+resize all images into RAM once (default on; the dataset is "
                           "tiny). Use --no-cache to decode from disk every epoch.")
     ap.add_argument("--cpu", action="store_true", help="Force CPU (shorthand for --device cpu).")
+    ap.add_argument("--resume", default=None,
+                     help="Path to a checkpoint (e.g. runs/gan/checkpoints/covidgan_epoch0100.pt) to "
+                          "resume from: restores generator/discriminator + optimizer state and continues "
+                          "from the saved epoch. Use to recover an interrupted long run.")
     train(ap.parse_args())
