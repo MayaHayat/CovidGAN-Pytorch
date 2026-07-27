@@ -109,32 +109,56 @@ The decisive test is **Experiment 9b — cross-dataset validation**: evaluate th
 
 ---
 
-## 8. The GAN augmentation arm (CNN-SA) and why it can't yet be evaluated
+## 8. The GAN augmentation arm (CNN-SA) — trained to the paper's 2000 epochs
 
-The paper trains CovidGAN for **2000 epochs** (~5h on an RTX 2060; this is the default in `train_gan.py:114`). Our GAN so far has run only **~25 epochs** as a smoke test, so its synthetic images are **near-noise**. Every CNN-SA finding below must be read in that light: the augmentation arm cannot yet be validly evaluated, and the numbers instead serve as diagnostics of *how a frozen-backbone classifier reacts to bad synthetic data*.
+The GAN has now been trained for the paper's full **2000 epochs** (batch 64, lr 2e-4, Adam β₁=0.5, one-sided label smoothing), checkpointing every 100 epochs. On the M-series GPU (MPS) this took ~18 hours at ~55 min per 100 epochs; the run was made interruption-safe with checkpoints that store optimizer state and a `--resume` flag (`train_gan.py`). The trained generator (epoch 2000) is committed at `weights/covidgan_generator_final.pt`, and the synthetic pool was regenerated from it (**1,669 COVID + 1,399 Normal = 3,068** images, matching the paper).
 
-**CNN-SA is flat, and slightly harmful on COVID.** Trained on real + this near-noise synthetic pool, CNN-SA scores **91.15%** — identical accuracy to CNN-AD — but it **traded 2 COVID detections for 2 Normals** (COVID recall 0.86 vs. CNN-AD's 0.89). No lift; slight COVID harm.
+### 8.1 The generator did learn — FID dropped ~2×
 
-| Confusion matrix (rows = true, cols = predicted) | predicted COVID | predicted Normal |
+FID (Fréchet Inception Distance; lower = closer to the real image distribution) between the real test CXRs and the synthetic pool, before (25-epoch smoke GAN) and after (2000-epoch GAN):
+
+| Set | 25-epoch (noise) | **2000-epoch** | Change |
+|---|---|---|---|
+| overall | 504.4 | **272.7** | −46% |
+| COVID | 487.2 | 302.2 | −38% |
+| Normal | 538.0 | 290.2 | −46% |
+
+FID roughly **halved** — the 2000-epoch generator produces meaningfully more CXR-like images than the near-noise smoke GAN. In absolute terms ~273 is still high (a good FID is single / low-double digits): partly the upward bias of a small real set (72–120 images ≪ InceptionV3's 2048-dim features, which `evaluate_fid.py` warns about), and partly genuine — 2000 epochs on 403 COVID images at 112×112 yields *plausible* CXRs, not photorealistic ones.
+
+### 8.2 …yet CNN-SA does not beat CNN-AD — the result is flat
+
+Retraining the detector on real + the **2000-epoch** synthetic pool:
+
+| Model | Accuracy | COVID recall | Normal recall |
+|---|---|---|---|
+| **CNN-AD** (real only) | 90.62% (174/192) | 0.889 (64/72) | 0.917 (110/120) |
+| **CNN-SA** (+ 2000-epoch synthetic) | 90.10% (173/192) | 0.861 (62/72) | 0.925 (111/120) |
+
+(The paired CNN-AD baseline here is 90.62%, within run-to-run variance of the 91.15% in §3 — a ±1-image wobble on 192 test images.) CNN-SA is **flat** — actually one image lower, trading 2 COVID catches for 1 Normal. That 0.52-point difference is **within run-to-run noise** (each image = 0.52%): *no improvement, and no reliable degradation* — not a real drop.
+
+Head-to-head with the paper:
+
+| | Paper | Our reconstruction |
 |---|---|---|
-| **CNN-AD** — true COVID | 64 | 8 |
-| **CNN-AD** — true Normal | 9 | 111 |
-| **CNN-SA** — true COVID | 62 | 10 |
-| **CNN-SA** — true Normal | 7 | 113 |
+| CNN-AD | 85% | 90.6% |
+| CNN-SA | 95% (**+10**) | 90.1% (**flat**) |
 
-Both total **175/192 = 91.15%**.
+### 8.3 Why the performance did not change
 
-**Why CNN-SA's *train* accuracy looked high (~99%) despite bad images.** Synthetic images made up **77%** of the training set (**932 real + 3068 synthetic**). An AC-GAN produces **class-conditioned** structured noise — the label embedding imprints a systematic, per-class difference into even a poorly-trained generator's output — so synthetic COVID vs. synthetic Normal are **trivially separable**. High train accuracy is an artifact of that trivial separability and is **not evidence the images are good**.
+Four compounding reasons, most important first:
 
-**Decisive probe — synthetic-only classifier.** We trained a classifier on the **synthetic pool only** (3068 images). It reached **100%** synthetic-train accuracy but only **55.21%** on the **real** test set (COVID recall **0.22**) — **below** the 62.5% majority floor. This proves the synthetic class signal is a **GAN artifact with essentially zero transferable pathology**.
+1. **We are already near the ceiling; the paper was not.** The paper's premise is *small, hard, data-starved* — its CNN-AD sat at **85%** with ample headroom for augmentation to fill. Our baseline is already **~90.6%** on the cleaner, more separable modern Kaggle data (§3–§6). A +10-point jump simply isn't available from a 90.6% start.
+2. **The bottleneck here is not data quantity/diversity.** Augmentation helps a classifier that is starved for examples. Our frozen-VGG features already separate the classes cleanly at ~90%, so extra synthetic samples mostly reinforce a boundary that is already well-placed rather than filling a deficit.
+3. **The frozen backbone caps augmentation's leverage.** Only ~33K head parameters train (the VGG16 base is frozen, per the paper), so synthetic images can only nudge a small linear boundary — they cannot reshape learned features.
+4. **Decisive evidence that image *quality* is not the lever.** FID **halved** (noise → plausible) between the smoke GAN and the 2000-epoch GAN, yet CNN-SA landed at **90.1%** — statistically identical to *both* CNN-AD **and** the earlier noise-GAN CNN-SA (91.15% / COVID recall 0.86). If image quality drove the outcome, a 2× FID improvement should have produced *some* downstream lift; it produced none. This isolates the cause as a **headroom / frozen-head ceiling**, **not** poor image quality.
 
-**Why CNN-SA doesn't collapse despite training on bad data.** Three reasons compound:
+### 8.4 Supporting diagnostics (from the smoke-GAN phase)
 
-1. **Frozen backbone** — only ~33K head params can be affected at all, so the synthetic noise has very little capacity to corrupt.
-2. **Feature-space separation** — the synthetic-noise images occupy their own region of VGG16 feature space (visible in the PCA plot from `plot_pca`, `covidgan/metrics.py:95`), so they barely perturb the real decision boundary.
-3. **Short training** — 25 epochs still let the head fit the real images.
+These earlier probes explain the *mechanism* and still hold:
 
-**Consequence.** To validly test the paper's 85→95 augmentation claim, the GAN **must** be trained to ~2000 epochs — until samples resemble real CXRs, judged by the new **FID** metric. And because our baseline is **already 91%** (vs. the paper's 85%), there is **little headroom** for a +10-point jump. The meaningful thing to watch is therefore **whether CNN-SA improves COVID recall**, not absolute accuracy.
+- **High CNN-SA *train* accuracy (~99%) is not evidence of good images.** Synthetic images are **77%** of the training set (932 real + 3068 synthetic). An AC-GAN imprints a **class-conditioned** signature via the label embedding, so synthetic COVID vs. Normal are trivially separable — inflating *train* accuracy regardless of realism.
+- **Synthetic-only probe.** A classifier trained on the (smoke-GAN) synthetic pool alone reached **100%** synthetic-train accuracy but only **55.21%** on the real test set (COVID recall **0.22**) — below the 62.5% majority floor — confirming the synthetic class signal carries essentially zero transferable pathology.
+- **Why CNN-SA never collapses**, even on bad data: the frozen backbone limits corruption to ~33K params; the synthetic images occupy their own region of VGG16 feature space (PCA, `covidgan/metrics.py:95`); so they barely perturb the real decision boundary.
 
 ---
 
@@ -151,7 +175,9 @@ The original scripts selected the compute device with only `torch.cuda.is_availa
 
 ## Status / next steps
 
-1. **Train the GAN to ~2000 epochs** on a Colab GPU (now practical thanks to §9), until samples look like real CXRs.
-2. **Regenerate the synthetic pool** and **recompute FID** to confirm sample quality objectively.
-3. **Rerun CNN-SA** on the real-quality synthetic data and compare against the paper's 85→95 claim — watching **COVID recall**, since absolute-accuracy headroom is small.
-4. **(Optional but decisive) Run Experiment 9b** — cross-dataset validation on an **independent** public dataset — to close the remaining "transferable pathology vs. Kaggle-specific fingerprint" question from §7.
+1. ✅ **GAN trained to 2000 epochs** (§8) — generator committed at `weights/covidgan_generator_final.pt`.
+2. ✅ **Synthetic pool regenerated + FID computed** — FID 504 → 273 (§8.1), confirming the generator genuinely learned.
+3. ✅ **CNN-SA rerun** on the real-quality synthetic data (§8.2) — **flat, 90.6 → 90.1**, explained by the ceiling / frozen-head effect (§8.3).
+4. **(Recommended) Multi-seed comparison** — 5× CNN-AD vs. 5× CNN-SA to report mean ± spread, so "flat" is backed statistically rather than by a single run.
+5. **(Optional but decisive) Experiment 9b** — cross-dataset validation on an **independent** public dataset (§7), to close the "transferable pathology vs. Kaggle-specific fingerprint" question.
+6. **Stage 2 (improvement)** — deliberately create headroom so augmentation *can* help: e.g. unfreeze some VGG16 layers, or use a harder split, then re-test the 85→95-style claim.
