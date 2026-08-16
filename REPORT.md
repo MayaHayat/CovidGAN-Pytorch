@@ -184,6 +184,10 @@ below as **hypothesis → method → result → verdict**.
   improvement should have produced *some* downstream lift; it produced none.
   **Image quality is not what caps augmentation.**
 
+![FID roughly halved between the 25-epoch and 2000-epoch generators, overall and per class — the generator genuinely learned.](stage2/results/figures/fid_drop.png)
+
+![AC-GAN samples over training: pure noise at epoch 10 → recognizable chest X-rays (visible ribcage and lung fields) by epoch 2000, consistent with the FID drop.](stage2/results/figures/gan_samples.png)
+
 ### 3.6 Combined diagnosis of the two anomalies
 - **Anomaly A (high baseline):** not cross-source (3.2), not a coarse shortcut
   (3.3). Most consistent explanation: the **modern Kaggle dataset is cleaner,
@@ -251,6 +255,8 @@ COVID recall (where the gap lives):
 **Both predictions confirmed:** the baseline rose (90.6→94.5%) *and* augmentation
 now helps. At uf=2, **CNN-SA (96.67%) exceeds the paper's 95%.**
 
+![Paper vs reconstruction vs improved — CNN-AD (real only) vs CNN-SA (+synthetic). Stage 1 (frozen) shows no augmentation gain; both Stage 2 variants raise the baseline and restore a positive lift, with uf=2 CNN-SA edging past the paper's 95%.](stage2/results/figures/comparison_bar.png)
+
 ### 5.2 Test 6 — Multi-seed robustness + capacity ablation
 - **Hypothesis:** a single-run "+1.5 points" could be seed noise; and more
   unlocked capacity should give more room for augmentation.
@@ -276,6 +282,8 @@ now helps. At uf=2, **CNN-SA (96.67%) exceeds the paper's 95%.**
   | 0.25 | 233 | 89.58% | 92.88% | **+3.30** |
   | 0.50 | 466 | 91.32% | 93.06% | +1.74 |
   | 1.00 | 932 | 93.92% | 96.01% | +2.08 |
+
+  ![Data-scarcity curve: CNN-SA (red) stays above CNN-AD (blue) at every real-data fraction; the green labels are the accuracy lift.](stage2/results/figures/data_scarcity.png)
 - **Result:** the baseline degrades monotonically as data shrinks (93.9→87.0%),
   and augmentation helps at **every** level (+1.7 to +3.3), **largest in the
   low-to-mid regime** (peak +3.30 at 25%).
@@ -297,6 +305,8 @@ now helps. At uf=2, **CNN-SA (96.67%) exceeds the paper's 95%.**
   slightly up). SA's curve sits above AD's at essentially every epoch. The
   single-epoch "peaks" (AD 95.83%@24, SA 97.40%@6) are random noise spikes at
   different epochs.
+
+  ![Generalization curve: train accuracy (grey dashed) saturates near 100%, but test accuracy (solid) plateaus rather than degrading through 25 epochs; the fixed 15-epoch mark sits on the plateau. SA's test curve stays above AD's throughout.](stage2/results/figures/generalization_curve.png)
 - **Verdict:** **no harmful overfitting** — train saturation ≠ test degradation.
   "Train longer" neither helps much nor hurts; fixed 15 epochs sits on the
   plateau. Early stopping is unnecessary here; proper *validation*-based early
