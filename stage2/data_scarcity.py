@@ -34,7 +34,7 @@ import torch.nn as nn
 from torch.utils.data import ConcatDataset, DataLoader, Subset
 
 from covidgan.data import CLASS_NAMES, CXRDataset, make_synthetic_items, read_manifest
-from covidgan.models import pick_device
+from covidgan.models import build_classifier, pick_device
 
 from stage2.model import build_stage2_classifier
 from stage2.train_stage2 import seed_everything, summarize
@@ -57,12 +57,22 @@ def stratified_indices(labels, frac, seed):
 
 
 def train_eval(train_ds, test_loader, device, args, seed):
-    """Fresh improved model, train on train_ds, evaluate on the fixed test set."""
+    """Fresh model, train on train_ds, evaluate on the fixed test set.
+
+    --frozen uses the paper's EXACT detector (covidgan.models.build_classifier:
+    frozen VGG16 base + ~33K-param head, no BatchNorm) so the sweep answers "does
+    augmentation help under the paper's own design"; otherwise the Stage 2 improved
+    classifier (top VGG block fine-tuned + BN head) is used."""
     seed_everything(seed)
-    model = build_stage2_classifier(num_classes=len(CLASS_NAMES),
-                                    unfreeze_blocks=args.unfreeze_blocks).to(device)
-    optimizer = torch.optim.Adam(model.param_groups(head_lr=args.lr, backbone_lr=args.backbone_lr),
-                                 betas=(0.9, 0.999))
+    if args.frozen:
+        model = build_classifier(num_classes=len(CLASS_NAMES)).to(device)
+        optimizer = torch.optim.Adam((p for p in model.parameters() if p.requires_grad),
+                                     lr=args.lr, betas=(0.9, 0.999))
+    else:
+        model = build_stage2_classifier(num_classes=len(CLASS_NAMES),
+                                        unfreeze_blocks=args.unfreeze_blocks).to(device)
+        optimizer = torch.optim.Adam(model.param_groups(head_lr=args.lr, backbone_lr=args.backbone_lr),
+                                     betas=(0.9, 0.999))
     criterion = nn.CrossEntropyLoss()
     loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True,
                         num_workers=0, drop_last=True)
@@ -102,6 +112,9 @@ def main():
     ap.add_argument("--lr", type=float, default=1e-3)
     ap.add_argument("--backbone-lr", type=float, default=1e-5)
     ap.add_argument("--unfreeze-blocks", type=int, default=1)
+    ap.add_argument("--frozen", action="store_true",
+                    help="Use the paper's exact frozen-VGG16 detector (build_classifier) "
+                         "instead of the Stage 2 fine-tuned model.")
     ap.add_argument("--device", default="auto")
     args = ap.parse_args()
 
@@ -145,7 +158,9 @@ def main():
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    payload = {"seeds": args.seeds, "unfreeze_blocks": args.unfreeze_blocks, "points": results}
+    payload = {"seeds": args.seeds, "frozen": args.frozen,
+               "unfreeze_blocks": (None if args.frozen else args.unfreeze_blocks),
+               "synthetic_dir": args.synthetic_dir, "points": results}
     (out_dir / "summary.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
     print("\n" + "=" * 78)
