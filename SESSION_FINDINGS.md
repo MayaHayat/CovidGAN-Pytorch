@@ -136,12 +136,20 @@ python -m stage2.data_scarcity --frozen --synthetic-dir data/synth_projection \
 
 | real data | CNN-AD (frozen) | CNN-SA (frozen, +projection) | acc lift | recall lift |
 |---|---|---|---|---|
-| 10% | _running_ | | | |
-| 25% | _running_ | | | |
-| 50% | _running_ | | | |
-| 100% | _running_ | | | |
+| 10% (93) | 83.85% | 77.78% | **−6.08** | −13.89 |
+| 25% (233) | 88.37% | 80.21% | **−8.16** | −12.50 |
+| 50% (466) | 89.41% | 84.55% | −4.86 | −5.09 |
+| 100% (932) | 89.76% | 87.85% | −1.91 | −1.85 |
 
-Output: `runs/scarcity_frozen_proj/summary.json`. *(Expectation: a positive SA−AD lift at the low fractions, since the projection pool now transfers at 74% and starved real data leaves headroom — i.e. the GAN gives a real improvement even in the paper's own design, in the paper's own regime.)*
+Output: `runs/scarcity_frozen_proj/summary.json` (3 seeds). **Result: the OPPOSITE of the expectation — under the paper's frozen detector the projection pool *hurts*, and worse as data gets scarcer (−6 to −8 at 10–25%).**
+
+**Interpretation (this is a key finding).** Even the best synthetic pool (FID 155, transfer 74.5%) *degrades* a frozen-head classifier, most when real data is scarce. Two compounding reasons:
+1. **The head can't adapt features.** With ~33K params on fixed ImageNet features, the frozen head cannot reconcile real and synthetic — synthetic occupies its own region of VGG feature space (Stage-1 PCA), so the head just fits the synthetic-dominated boundary, which transfers worse to real. Unfreezing lets the encoder reconcile them → the same augmentation flips to **+2…+3.3** (Test 6 unfrozen numbers above).
+2. **Dilution.** At 10% real the pool is 3068 synthetic vs 93 real (97% synthetic); the weaker-signal synthetic (74.5% < 90% real) swamps the scarce real set.
+
+**Conclusion.** "Does the GAN give ANY improvement under the paper's exact frozen design?" → **No — it hurts.** The GAN's benefit is real but *conditional on unfreezing the encoder*; the frozen head is the true blocker, not GAN quality. The two Stage-2 changes (better GAN + unfrozen encoder) are **complementary and both required** — neither alone reproduces the paper's augmentation benefit.
+
+*Caveat / open lever:* the negative may be amplified by the extreme synthetic:real ratio under a non-adaptive head. Capping synthetic to ~1× the real count (or augmenting only the minority COVID class) might soften the frozen-head penalty — untested.
 
 ---
 
