@@ -87,7 +87,19 @@ python evaluate_fid.py --real-manifest data/manifest.csv --real-split test --syn
 |---|---|---|---|
 | Stage-1 AC-GAN, 2000 ep | 272.7 | 302.2 | 290.2 |
 | Improved AC-GAN, 300 ep | 225.7 | 248.8 | 251.1 |
-| **Improved Projection, 300 ep** | **155.0** | 176.2 | 169.9 |
+| Improved Projection, 300 ep | 155.0 | 176.2 | 169.9 |
+| **Improved Projection, 600 ep** | **121.3** | — | — |
+
+**300 → 600 epochs helped the generator (revises the earlier "300 is enough").** Resumed projection 300→600 (`covidgan_epoch0300.pt` preserved; pool `data/synth_projection_600`). FID 155.0 → **121.3** (−22%), and the **synthetic-only transfer probe rose 74.5% → 81.3%** with COVID recall 0.47 → **0.67** — the synthetic now carries materially more *real* pathology, not just sharper texture. Samples at epoch 600 are visibly crisper (rib/vascular detail) with no brightness fingerprint. Transfer-probe ladder: AC-GAN@300 72.9% < Proj@300 74.5% < **Proj@600 81.3%**.
+
+**Downstream check (300 vs 600 pool), single seed, controlled (same seed/classifier, only the pool differs):**
+
+| classifier | AD (real only) | SA + Proj 300 | SA + Proj 600 |
+|---|---|---|---|
+| frozen | 90.62% | 90.10% | **88.54%** |
+| unfrozen (uf=2) | 95.31% | 97.40% | **93.75%** |
+
+**The better generator made downstream WORSE in both rows** — frozen 90.10→88.54, unfrozen 97.40→93.75 (below its own 95.31 AD baseline). So lower FID (155→121) *and* higher transfer probe (74.5→81.3) did **not** convert to a downstream gain; they coincided with a drop. This is the sharpest evidence for the core claim: **GAN quality metrics (FID, even the transfer probe) do not predict downstream augmentation value here** — a prettier, more class-faithful generator did not help the classifier. *(Caveat: single seed; the unfrozen −3.65 exceeds the ~0.7–1% seed std ~5×, so likely not pure noise, but multi-seed is needed to call it a true regression vs. an unlucky draw.)*
 
 **Interpretation.** Projection at **300 epochs** beats the Stage-1 AC-GAN at **2000 epochs** by ~43% FID (155 vs 273), and beats improved AC-GAN (226) — the best generator of the three, at a fraction of the epochs. (Absolute FID stays high because the real set is only 192 images ≪ Inception's 2048-dim features — an upward bias; cross-pool *ranking* is the valid read.) Note FID rank (projection ≫ AC-GAN) does **not** translate to a downstream gap (Test 5: 97.4 vs 97.9, tied) — reconfirming FID/quality is not the downstream lever here.
 
