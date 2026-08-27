@@ -116,13 +116,26 @@ headline 85% → 95% accuracy jump.
 ## Repo layout
 
 ```
-covidgan/
+covidgan/               Stage 1 package
   models.py     Generator, Discriminator, build_classifier
   data.py       dataset loading, dedup, split, torch Dataset
   metrics.py    classification table, confusion matrix, PCA plot
-prepare_dataset.py    raw folders -> data/manifest.csv
-train_gan.py          train CovidGAN
-generate_synthetic.py sample the trained generator into a synthetic pool
-train_classifier.py   train + evaluate the detection CNN (AD or SA mode)
-CovidGAN_Colab.ipynb   ready-to-run Colab notebook for the full pipeline on a free GPU
+stage2/                 Stage 2 package (GAN + classifier improvements, results/, STAGE2_FINDINGS.md)
+
+prepare_dataset.py      raw folders -> data/manifest.csv
+train_gan.py            train CovidGAN
+generate_synthetic.py   sample the trained generator into a synthetic pool
+train_classifier.py     train + evaluate the detection CNN (AD or SA mode)
+evaluate_fid.py         FID of the synthetic pool
+stage1_multiseed.py     multi-seed Stage 1 runs
+
+notebooks/              Colab + local + stage2-comparison notebooks
+docs/                   All documentation — see docs/README.md for the index
+  reports/              The deliverables: REPORT.md (primary) + short/tex/overleaf variants
+  findings/             Stage 1 & Stage 2 working research logs
+  archive/              Superseded report drafts
+  assignment/           Course brief
+  references/           Background papers + survey
 ```
+
+See [docs/README.md](docs/README.md) for a full documentation index.

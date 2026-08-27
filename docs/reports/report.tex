@@ -36,43 +36,78 @@
 
 \newcommand{\code}[1]{\texttt{#1}}
 
+% "COVID GAP" callout: flags where the 2nd dataset (DDSM) currently leads a test
+% that the primary COVID dataset does not yet lead (missing / lower power).
+\newcommand{\covidgap}[1]{%
+  \par\smallskip\noindent
+  \fcolorbox{orange!55!black}{orange!8}{%
+    \parbox{\dimexpr\linewidth-2\fboxsep-2\fboxrule}{%
+      \small\textbf{\textcolor{orange!55!black}{[\,!\,] COVID GAP.}}\ #1}}%
+  \par\smallskip}
+
 % ---------- title ----------
-\title{\textbf{CovidGAN --- Paper Reconstruction and Improvement}\\[4pt]
-\large Final Project, Part 2}
-\author{}
+\title{\textbf{Reproducing, Diagnosing, and Rescuing the CovidGAN Claim}\\[2pt]
+\large --- Validated on a Second Dataset ---\\[6pt]
+\normalsize Final Project, Part 2 --- Joint Report}
+\author{Hila Fishman \and Maya Hayat}
 \date{}
 
 \begin{document}
 \maketitle
-\vspace{-2.5em}
+\vspace{-2.0em}
 
 \noindent
-Reconstruction and improvement of Waheed, Goyal, Gupta, Khanna, Al-Turjman,
-Pinheiro, \emph{``CovidGAN: Data Augmentation Using Auxiliary Classifier GAN for
-Improved Covid-19 Detection''}, IEEE Access, vol.~8, 2020.
+Reconstruction, diagnosis, and improvement of Waheed, Goyal, Gupta, Khanna,
+Al-Turjman, Pinheiro, \emph{``CovidGAN: Data Augmentation Using Auxiliary
+Classifier GAN for Improved Covid-19 Detection''}, IEEE Access, vol.~8, 2020.
+
+\medskip
+\noindent\textbf{Contributors.} Hila Fishman \quad Maya Hayat
 
 \medskip
 \noindent
-This is the \textbf{unified report} for both stages. \textbf{Stage~1} reconstructs
-the paper's AC-GAN + VGG16 COVID-19 detector; \textbf{Stage~2} improves the
-architecture and shows the effect in a paper\,/\,reconstruction\,/\,improved table.
-A large part of the work was \textbf{experimental investigation}: our
-reconstruction did \emph{not} match the paper on two points --- our baseline came
-out higher than the paper's, and GAN augmentation came out flat rather than +10 ---
-and most of Stage~1 is a sequence of controlled tests that try to explain why.
-Those tests motivated the Stage~2 design, which does recover a positive
-augmentation lift. Throughout, we treat these tests as \emph{support for or against}
-a hypothesis, not as proof.
-It follows the required structure (Original architecture, Paper results,
-Reconstruction results, Improved architecture, Improved results, Discussion,
-References), with a short reproduce-commands section just before the references.
-Numbers behind every table live in \code{stage2/results/}.
+\textbf{This is the unified joint report.} CovidGAN is the main project and
+\textbf{leads every experiment}: we reconstruct the paper's AC-GAN + VGG16 COVID-19
+detector faithfully and find that its \textbf{central claim --- a +10-point accuracy
+lift from GAN augmentation --- does not reproduce}. Our first hypothesis for
+\emph{why} was the \textbf{data}: the modern Kaggle CXR set we use is cleaner and
+more separable than the paper's 2020 hand-merged set, which could give a baseline so
+high that augmentation has nothing left to add. But that is a claim about \emph{our
+particular dataset}, not about the method --- and the way to test it is to
+\textbf{run the whole pipeline again on a completely different dataset}. So the
+project runs on two tracks: (1)~diagnose and fix the claim on the COVID data (the
+main line, Sections~\ref{sec:recon}--\ref{sec:improvedresults}); (2)~\textbf{replicate
+the same experiments on a second, independent dataset} --- CBIS-DDSM
+benign-vs-malignant mammography (Section~\ref{sec:ddsm}) --- to check whether each
+COVID conclusion is data-specific or general. Both tracks converge: the paper's naive
+setup fails on \emph{both} datasets (so the failure is \emph{not} an artifact of our
+cleaner COVID data), the same fixes rescue a real-but-smaller benefit on each, and
+both independently surface the same counter-intuitive phenomenon --- \textbf{a
+generator that is better by every quality metric (FID, transfer, stability) can make
+the downstream classifier worse}.
+
+\medskip
+\noindent\textbf{How to read this report.} CovidGAN is the primary dataset and
+\textbf{leads every main experiment}; each states the COVID result first, then a
+\emph{``Second dataset (DDSM)''} check of whether the same conclusion holds on
+independent data (consolidated in Section~\ref{sec:ddsm}, with pointers from each
+COVID test). A callout marked \textbf{[\,!\,] COVID GAP} flags the places where the
+second dataset currently carries a test at \emph{higher} power than the primary
+COVID dataset yet leads (single-seed or missing on COVID) --- i.e.\ work to bring
+back onto the main line. Throughout, we treat each test as \emph{support for or
+against} a hypothesis, not as proof. The report follows the required structure
+(Original architecture, Paper results, Reconstruction results, Improved architecture,
+Improved results, Discussion, References), with the second-dataset replication and a
+short reproduce-commands section before the references. Numbers behind every CovidGAN
+table live in \code{stage2/results/}; DDSM numbers are from Weights~\&~Biases
+(\code{maya-hayat-ariel-university/ddsm-acgan}).
 
 \tableofcontents
 \bigskip
 
 % =====================================================================
 \section{Original architecture}
+\label{sec:arch}
 % =====================================================================
 
 The paper's pipeline has two models: an \textbf{AC-GAN} that synthesizes
@@ -420,8 +455,28 @@ is largely ``\textbf{why do we catch more COVID cases?}'' (8 missed vs 22).
         useless but mildly \emph{misleading} --- the AC-GAN stamps an easy
         class-conditioned signature through its label branch, and that signature is
         recoverable \emph{within} the synthetic set but does not match (and even
-        cuts against) the features that separate real COVID from real Normal.
+        cuts against) the features that separate real COVID from real Normal. This
+        signature is \textbf{plainly visible to the eye} in Figure~\ref{fig:samples}:
+        the synthetic COVID tiles are \emph{conspicuously brighter} than the Normal
+        ones --- a whole-image style difference anyone can spot at a glance, which is
+        exactly \emph{not} how real pathology presents.
+  \item \textbf{Reproduced on the second dataset:} DDSM's synthetic-only probe and
+        PCA analysis show the same failure --- naive synthetic samples carry little
+        transferable signal and sit outside the real class's feature region
+        (Section~\ref{sec:ddsm}).
 \end{itemize}
+
+\paragraph{Is this a contradiction with Test~3?} No --- and the two are worth reading
+together, because they concern \emph{different images}. Test~3 is about the classifier
+reading \textbf{real} X-rays: blurring them collapses accuracy and COVID recall, so
+the model depends on \emph{fine} detail that is genuinely present in real images
+(real pathology). Test~4 is about the generator's \textbf{synthetic} images: a model
+trained only on them fails on real data, so the fakes do \emph{not} contain that fine
+pathology --- only the coarse brightness tag of Figure~\ref{fig:samples}. Far from
+conflicting, the two results \emph{reinforce} each other and jointly explain the flat
+augmentation: the real task is won on fine detail (Test~3), and the fakes supply only
+a coarse global tag instead of that detail (Test~4), so the synthetic images are
+missing precisely the signal the classifier relies on.
 
 \paragraph{Does this mean ``the GAN didn't work'', or that the fakes ``confuse''
 the classifier?} It is worth being precise, because two different things are true
@@ -466,6 +521,22 @@ limits corruption to $\sim$33K params, and the synthetic images occupy their own
 region of VGG16 feature space (PCA, \code{covidgan/metrics.py:95}), so they barely
 perturb the real decision boundary.
 
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.78\linewidth]{gan_samples.jpg}
+\caption{\textbf{The fingerprint, seen.} 2000-epoch AC-GAN samples: the COVID tiles
+(columns~1 \& 3) are uniformly \emph{brighter} and hazier than the darker, sharper
+Normal tiles (columns~2 \& 4), so the classes are separable by a \emph{global
+brightness style} rather than localized pathology --- exactly the useless-but-present
+class signature the synthetic-only probe detects (55\% on real, below floor). The
+generator did learn to look like a chest X-ray (visible ribcage/lung fields; its FID
+also halves over training, Test~5), it just did not learn the \emph{class} difference
+as real pathology. We quantify this ``fingerprint'' in
+Section~\ref{sec:trackBresults} (real class-mean brightness differs by only
+$\sim$3.5\%, yet the GAN turned it into a deterministic rule).}
+\label{fig:samples}
+\end{figure}
+
 \subsection{Test 5 --- Generator quality over training (FID)}
 \begin{itemize}[nosep,leftmargin=1.4em]
   \item \textbf{Hypothesis (anomaly B):} augmentation is flat because the GAN
@@ -509,14 +580,6 @@ Normal  & 538.0 & 290.2 & $-46\%$ \\
 \includegraphics[width=0.78\linewidth]{fid_drop.png}
 \caption{FID roughly halved between the 25-epoch and 2000-epoch generators, overall
 and per class --- consistent with the generator learning CXR-like structure.}
-\end{figure}
-
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=0.78\linewidth]{gan_samples.png}
-\caption{AC-GAN samples over training: pure noise at epoch 10 $\rightarrow$
-recognizable chest X-rays (visible ribcage and lung fields) by epoch 2000,
-consistent with the FID drop.}
 \end{figure}
 
 \subsection{Multi-seed check --- is the ``flat'' result just one unlucky run?}
@@ -691,15 +754,20 @@ which motivate a set of standard GAN fixes.
 3 & Latent noise $z\sim\mathcal{N}(0,0.02)\to\mathcal{N}(0,1)$ & ``change the latent dimension'' & diversity / fingerprint \\
 4 & \textbf{DiffAugment} on D's real+fake inputs & ``add regularization'' & small-data overfitting \\
 5 & \textbf{Spectral-norm} discriminator, DCGAN weight init & ``improve the discriminator'' & training stability \\
+6 & \textbf{Projection discriminator} (replace the auxiliary class head with a projection inner-product) & ``improve the discriminator'' & fingerprint at its root \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 The architecture (layer shapes, $\sim$22M G / $\sim$2M D params) is otherwise
 unchanged, so any improvement is attributable to the training recipe, not a bigger
-model. We deliberately kept the AC-GAN objective for a controlled comparison; a
-projection discriminator (which removes the auxiliary-classifier fingerprint at its
-root) is noted as a further step in Section~\ref{sec:discussion}.
+model. We evaluate \textbf{two} improved generators: (i)~an \emph{improved AC-GAN}
+(changes 3--5) that keeps the auxiliary class head for a controlled comparison, and
+(ii)~a \textbf{projection discriminator} (change~6, \code{stage2/gan\_projection.py},
+Miyato et al.\ 2018) that removes the auxiliary classifier entirely and conditions on
+the label through a projection inner-product --- so the discriminator no longer
+rewards \emph{any} cheap class marker, attacking the fingerprint at its source. The
+results for both are in Section~\ref{sec:trackBresults}.
 
 \paragraph{Why we expected improvement, and how we test it.} Restoring the noise
 scale should raise diversity (lower FID) and dilute the label fingerprint;
@@ -713,6 +781,7 @@ downstream number, so an FID drop is necessary but may not be sufficient.
 
 % =====================================================================
 \section{Improved results (Stage 2)}
+\label{sec:improvedresults}
 % =====================================================================
 
 Same 192-image real test set throughout, so all rows are comparable.
@@ -755,6 +824,9 @@ Stage 2 / uf=2 & 93.33\% $\pm$ 3.22 & 96.67\% $\pm$ 2.08 & +3.33 \\
 (90.6$\to$94.5\%) \emph{and} augmentation now helps rather than being flat. At
 uf=2, \textbf{CNN-SA (96.67\%) edges past the paper's 95\%}. We state this as a
 5-seed result with the spreads shown, not as a single lucky run.
+\emph{Reproduced on the second dataset:} unfreezing raises the DDSM baseline
+identically (66.0$\to$69.5\%) and revives augmentation there too
+(Section~\ref{sec:ddsmcap}).
 
 \begin{figure}[htbp]
 \centering
@@ -864,6 +936,318 @@ throughout.}
         \emph{why} tuning the epoch on the test set would bias the result.
 \end{itemize}
 
+\subsection{Track B results --- killing the fingerprint, and the downstream paradox}
+\label{sec:trackBresults}
+Track~A (above) gave the classifier capacity to \emph{use} good synthetic data.
+This subsection reports what Track~B did to the \emph{generator} --- and a
+counter-intuitive result that turns out to be the project's central finding.
+
+\paragraph{The fingerprint, quantified.} The Stage~1 (2000-epoch, noise 0.02)
+generator made COVID samples uniformly hazy/bright and Normal samples dark/sharp,
+with near-zero within-class diversity (mode collapse; visible in the epoch-2000 grid,
+Section~\ref{sec:recon}). But on \emph{real} data that class difference barely
+exists: class-mean brightness is COVID~138.6 vs Normal~129.8 --- \textbf{+8.8\,/\,255
+($\sim$3.5\%)} --- with per-image ranges (COVID 105--168, Normal 104--144) overlapping
+almost completely. The GAN \textbf{amplified a faint, overlapping tendency into a
+deterministic rule}, manufacturing a separability real X-rays do not have. That is
+the ``label fingerprint'' of Test~4, measured (\code{stage2/synthetic\_only\_probe.py}).
+
+\paragraph{The fix works: transfer rises as the fingerprint is removed.} We measure
+generator quality two ways --- FID (realism/diversity) and a \textbf{transfer probe}
+(train a classifier on synthetic \emph{alone}, test on real; floor $=62.5\%$, so
+\emph{below} floor means the synthetic signal actively cuts against real pathology):
+
+\begin{table}[htbp]
+\centering\small
+\begin{tabular}{@{}lcc@{}}
+\toprule
+\textbf{Generator} & \textbf{FID (overall)} & \textbf{Transfer-probe acc.} \\
+\midrule
+Stage-1 AC-GAN, 2000 ep (noise 0.02) & 272.7 & \textbf{55.2\%} (below floor --- pure fingerprint) \\
+Improved AC-GAN, 300 ep (noise 1.0 + DiffAug + SN) & 225.7 & 72.9\% \\
+Projection discriminator, 300 ep & 155.0 & 74.5\% \\
+\textbf{Projection discriminator, 600 ep} & \textbf{121.3} & \textbf{81.3\%} (COVID recall 0.47$\to$0.67) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent Raising the noise to $1.0$ is the single biggest lever
+(55$\to$73\%): it breaks the deterministic one-prototype-per-class collapse. The
+\textbf{projection discriminator} removes the auxiliary classifier's fingerprint
+incentive entirely and is the best, least-fingerprinted generator --- at 300~epochs
+it already beats the Stage-1 AC-GAN at 2000~epochs by $\sim$43\% FID (155 vs 273), and
+resuming it to 600~epochs reaches FID~121 with transfer~81\%. \textbf{The synthetic
+pool now carries real, transferable signal} rather than a stamp.
+
+\paragraph{The paradox (the project's sharpest finding).} A better generator did
+\textbf{not} help downstream --- it \emph{hurt}. Taking the projection pool from
+300$\to$600 epochs (FID 155$\to$121, transfer 74.5$\to$81.3\%) moved downstream
+accuracy the \emph{wrong} way in both classifier regimes (single seed, only the
+synthetic pool changing):
+
+\begin{table}[htbp]
+\centering\small
+\begin{tabular}{@{}lccc@{}}
+\toprule
+\textbf{Classifier} & \textbf{AD (real only)} & \textbf{SA + Proj 300} & \textbf{SA + Proj 600} \\
+\midrule
+frozen           & 90.62\% & 90.10\% & \textbf{88.54\%} \\
+unfrozen (uf=2)  & 95.31\% & 97.40\% & \textbf{93.75\%} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent Lower FID \emph{and} higher transfer, yet downstream accuracy dropped in
+both rows --- \textbf{the sharpest single piece of evidence that GAN quality metrics
+do not predict downstream augmentation value.} It echoes Test~5 (FID halving with no
+downstream lift) but is stronger: here a \emph{more} class-faithful generator makes
+things \emph{worse}. \emph{(Single seed; the unfrozen $-3.65$ is $\sim$5$\times$ the
+seed std, so likely real, but multi-seed confirmation is outstanding ---
+Section~\ref{sec:discussion}.)} \textbf{This same reversal appears independently on
+the second dataset at two seeds, with a mechanism probe} --- so DDSM currently
+\emph{leads} this experiment; see Section~\ref{sec:ddsmreversal} and its COVID-GAP
+callout.
+
+\paragraph{The two axes are complementary --- and both required.} Crossing
+\{improved AC-GAN, projection\} synthetic pools against \{frozen, unfrozen\}
+classifier (single seed; the uf=2 lift itself is 5-seed confirmed at +2.19~$\pm$~0.7
+above):
+
+\begin{table}[htbp]
+\centering\small
+\begin{tabular}{@{}lccc@{}}
+\toprule
+\textbf{Classifier} & \textbf{AD} & \textbf{SA + AC-GAN} & \textbf{SA + Projection} \\
+\midrule
+frozen   & 90.62\% & 90.10\% & 90.10\% \\
+unfrozen & 95.31\% & \textbf{97.92\%} & 97.40\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent Better GANs help \textbf{only when the encoder is unfrozen} (+2,
+reproducible across the pools); under the frozen head they stay flat. Worse: under
+the frozen head with \emph{scarce} real data, even the best synthetic pool actively
+\emph{hurts}, and more so as data shrinks --- accuracy lift $-1.9$ at 100\% real
+$\to -6.1$ at 25\% $\to -8.2$ at 10\% (frozen detector + projection pool,
+\code{stage2/data\_scarcity.py --frozen}). The frozen head cannot reconcile real and
+synthetic features, and the scarce real set is swamped by the 3068-image synthetic
+pool. \textbf{So neither fix alone reproduces the paper's benefit: the GAN
+improvement and the capacity improvement are complementary and both necessary.}
+
+\paragraph{Conclusion on COVID.} On the original data the CovidGAN benefit is
+\textbf{real but contingent} --- it needs a de-fingerprinted GAN \emph{and} trainable
+classifier capacity \emph{and} a non-ceiling baseline. Fixing generator quality in
+isolation can even make things worse. Every conclusion here is a claim about
+\emph{our} COVID data; Section~\ref{sec:ddsm} re-runs the same experiments on an
+independent dataset to test whether they generalize or are a COVID artifact.
+
+% =====================================================================
+\section{Second dataset --- replicating the experiments on DDSM}
+\label{sec:ddsm}
+% =====================================================================
+
+\textbf{Why a second dataset --- and why a replication, not a ``harder task''.} The
+one explanation the COVID tests could not rule out (anomaly~A) is the \emph{data}: we
+\emph{could not perfectly recreate the paper's original COVID set} --- the authors
+published no image-level manifest of their exact 403/721 selection, and the Kaggle
+Radiography Database has been re-released several times since the March-2020 snapshot
+they used (Section~\ref{sec:discussion}). Our best guess for the high,
+augmentation-proof baseline is that \textbf{the data available today is cleaner and
+more separable} than the paper's, so our detector does legitimate but \emph{easier}
+classification. But that is a claim about \emph{our particular dataset}, not about the
+method --- and if the reproduction failure were really an artifact of the COVID set,
+it should behave \emph{differently} on a different one. So we do not go looking for a
+``harder task''; we \textbf{run the whole pipeline again, unchanged, on a completely
+independent dataset} and check whether each COVID conclusion recurs. If the same
+conclusions hold on independent data, they are not an artifact of the COVID set.
+
+That second dataset is \textbf{CBIS-DDSM} benign-vs-malignant mammography (contributed
+by Maya Hayat, \code{DDSM-ACGAN-Pytorch}) --- a \emph{static, versioned} benchmark
+whose labels and train/test split come from its own case CSVs (not re-randomized), so
+any effect is attributable to the model, not dataset drift. Mass-only scope:
+\textbf{1{,}318 real training ROIs, 378 test (231 benign / 147 malignant)}; the
+architecture and both improvement axes are the \emph{same} as CovidGAN's. Two DDSM
+data bugs were fixed before any result below --- \textbf{mask-folder contamination}
+(segmentation masks leaking into the image set) and \textbf{16-bit grayscale
+truncation} (\code{I;16} PNGs collapsing to near-white under
+\code{PIL.convert('RGB')}). Each subsection below states which COVID experiment it
+replicates.
+
+\subsection{Replicates Section~\ref{sec:recon}: the naive setup fails on DDSM too}
+With the paper's own configuration (baseline GAN + frozen classifier), augmentation
+does \textbf{not} help on DDSM either: real-only AD $=64.02\%$; frozen SA with
+baseline-GAN synthetic $=65.34\%$, with improved-GAN synthetic $=64.82\%$ (two-seed
+means, Section~\ref{sec:ddsmcap}); and at matched training, baseline-GAN augmentation
+is \emph{worse} than real-only (Section~\ref{sec:ddsmgan}). \textbf{The +10 claim does
+not transfer out-of-the-box any more than it reproduced on COVID --- so the failure is
+not an artifact of our cleaner COVID data.}
+
+\subsection{Replicates Experiment~4 (fingerprint / transferability)}
+The COVID transfer probe showed the naive synthetic pool carries no transferable
+pathology (55.2\%, below floor; Section~\ref{sec:trackBresults}). \textbf{Holds on
+DDSM:} its synthetic-only probe likewise shows the naive pool carries little
+transferable signal, and its PCA analysis shows baseline-GAN synthetic malignant
+samples sitting \emph{outside} the real-malignant feature region --- the same
+``synthetic is off in its own corner of feature space'' failure, independently
+reproduced.
+
+\subsection{Replicates Experiment~5 (improving the GAN) --- different recipe}
+\label{sec:ddsmgan}
+On COVID we removed the fingerprint with noise~1.0 + DiffAugment + spectral norm +
+projection discriminator. \textbf{Holds on DDSM via a different intervention:} spectral
+normalization on every discriminator conv + both heads (Miyato et al.\ 2018) and a
+\textbf{kernel $5\to4$, stride~2} fix on the transpose-conv blocks (removing
+checkerboard artifacts by construction, Odena et al.\ 2016). Stability improved
+\textbf{$\sim$10--30$\times$} (D\_loss std $0.351\to0.026$; G\_loss std
+$0.985\to0.018$), and improved-GAN synthetic malignant samples moved from
+\emph{outside} the real-malignant PCA region to \emph{overlapping} it. Matched epochs,
+matched synthetic composition, only the GAN architecture differing:
+
+\begin{table}[htbp]
+\centering\small
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+\textbf{GAN architecture} & \textbf{Epochs} & \textbf{Accuracy} & \textbf{Malig.\ recall} & \textbf{Benign recall} \\
+\midrule
+--- (real only, AD) & --- & 64.02\% & 0.64 & 0.64 \\
+baseline & 300 & \textbf{60.05\%} & 0.68 & 0.55 \\
+improved & 300 & \textbf{66.93\%} & 0.52 & 0.76 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent Baseline-GAN augmentation (60.05\%) is \emph{worse} than real-only;
+improved-GAN augmentation (66.93\%) beats both --- a \textbf{+6.9-point} architecture
+gap. Same conclusion as COVID (a de-fingerprinted, more stable GAN is achievable),
+reached via a different intervention; the two recipes are not yet unified
+(Section~\ref{sec:combine}). (The gain does not compound: 300~ep beats 600.)
+
+\subsection{Replicates Experiment~4/capacity (the shared unfreeze), two seeds}
+\label{sec:ddsmcap}
+The same ``unfreeze top VGG16 blocks + BN head'' intervention as
+Section~\ref{sec:trackA}, crossed with three data conditions, each at \textbf{two
+seeds}:
+
+\begin{table}[htbp]
+\centering\small
+\begin{tabular}{@{}lllccc@{}}
+\toprule
+\textbf{Classifier} & \textbf{Mode} & \textbf{Synthetic source} & \textbf{Seed 0} & \textbf{Seed 1} & \textbf{Mean} \\
+\midrule
+frozen   & AD & ---          & 66.14\% & 65.87\% & 66.00\% \\
+frozen   & SA & baseline GAN & 65.34\% & 65.34\% & 65.34\% \\
+frozen   & SA & improved GAN & 65.61\% & 64.02\% & 64.82\% \\
+\textbf{unfrozen} & \textbf{AD} & ---          & 69.84\% & 69.05\% & \textbf{69.45\%} \\
+\textbf{unfrozen} & \textbf{SA} & baseline GAN & 70.90\% & 70.63\% & \textbf{70.77\%} \\
+\textbf{unfrozen} & \textbf{SA} & improved GAN & 65.87\% & 67.46\% & \textbf{66.67\%} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent Reproducing across both seeds: \textbf{(1)}~unfreezing raises the baseline
+(66.00$\to$69.45\%, +3.45) --- the same capacity effect Section~\ref{sec:trackA} found
+on COVID (90.6$\to$94.5\%); \textbf{(2)}~with the unfrozen classifier, baseline-GAN
+augmentation gives DDSM's \textbf{first fully reproducible augmentation win}
+(70.77\% $>$ 69.45\% at both seeds). \textbf{Capacity is the precondition for
+augmentation to help, on both datasets.}
+
+\subsection{Replicates Experiment~3 (the paradox) --- and DDSM leads it}
+\label{sec:ddsmreversal}
+The project's central question --- does a better generator convert to a better
+classifier? --- got its most surprising answer on both datasets. On DDSM the improved
+GAN \emph{helps} at matched epochs (Section~\ref{sec:ddsmgan}) but \textbf{hurts once
+the classifier is unfrozen}: unfrozen SA-improved 66.67\% $<$ unfrozen SA-baseline
+70.77\% and $<$ unfrozen AD 69.45\%, \emph{at both seeds} (table above). This is the
+\emph{same} reversal COVID showed with the projection-600 pool
+(Section~\ref{sec:trackBresults}): \textbf{a generator better by every generator-side
+metric degrading a high-capacity classifier}, now seen independently on two datasets.
+
+\covidgap{On DDSM this reversal is established at \textbf{two seeds} and its mechanism
+was probed directly --- a synthetic-only fingerprint test that \emph{rejected} the
+``learnable fingerprint'' explanation (the improved pool carries \emph{more}
+transferable signal, not less). On COVID the same reversal is only a
+\textbf{single-seed} observation (projection 300~vs~600,
+Section~\ref{sec:trackBresults}) with \textbf{no mechanism probe}. To keep the primary
+dataset leading, the COVID projection-300-vs-600 downstream comparison needs
+multi-seed runs plus a COVID synthetic-only probe of the two pools.}
+
+\subsection{Replicates Experiment~5 (both fixes required) --- at higher power}
+DDSM ran the analogous capacity~$\times$~GAN-source grid --- \{frozen, unfrozen\}
+$\times$ \{real, baseline-GAN, improved-GAN\} --- at \textbf{two seeds} (table in
+Section~\ref{sec:ddsmcap}), and finds the same structure Section~\ref{sec:trackBresults}
+found on COVID: augmentation is flat under the frozen head and only becomes a
+reproducible win once the classifier is unfrozen. Neither fix alone reproduces the
+paper's benefit.
+
+\covidgap{COVID's capacity~$\times$~GAN-source grid
+(Section~\ref{sec:trackBresults}) is \textbf{single-seed}; DDSM's is \textbf{two-seed}.
+For the primary dataset to lead, the COVID grid should be re-run multi-seed via
+\code{stage2/multiseed.py} so its frozen/unfrozen~$\times$~GAN-source cells carry
+error bars comparable to DDSM's.}
+
+\paragraph{Note --- Experiment~6 (data scarcity) was not replicated on DDSM.} The
+COVID data-scarcity sweep (Test~7, Section~\ref{sec:improvedresults}) has no
+second-dataset check; it is COVID-only. This is \emph{not} a COVID gap (COVID leads
+it), but a second-dataset replication is noted as future work
+(Section~\ref{sec:discussion}).
+
+\paragraph{Replication verdict.} Every COVID conclusion that was checked on DDSM
+\textbf{held on independent data} --- the naive claim fails, the GAN can be
+de-fingerprinted, capacity is the precondition for augmentation, and a better
+generator can hurt a capable classifier. \textbf{The failure to reproduce the paper's
++10 is therefore not an artifact of our cleaner COVID dataset.} The two open items are
+power, not direction: the reversal and the capacity grid currently lead on DDSM (two
+seeds) and must be brought back onto the COVID line (the two callouts above).
+
+% =====================================================================
+\section{Stage 2 --- combining the two datasets}
+\label{sec:combine}
+% =====================================================================
+
+Both improvement axes have now been run on \textbf{both} datasets --- but with
+different recipes and different statistical power, so the two lines are parallel, not
+yet a single controlled experiment:
+
+\begin{table}[htbp]
+\centering\small
+\begin{tabular}{@{}lp{5.4cm}p{5.0cm}@{}}
+\toprule
+\textbf{Improvement axis} & \textbf{CovidGAN (COVID-CXR)} & \textbf{DDSM (mammography)} \\
+\midrule
+GAN architecture & noise 1.0 + DiffAugment + spectral norm + \textbf{projection discriminator} (Sec.~\ref{sec:trackBresults}); mostly single-seed & spectral norm + \textbf{kernel/stride} (Sec.~\ref{sec:ddsmgan}); mostly single-run \\
+\addlinespace
+Classifier capacity (unfreeze VGG + BN head) & Sec.~\ref{sec:trackA}, \textbf{5-seed} & Sec.~\ref{sec:ddsmcap}, \textbf{2-seed} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent The matrix is \emph{full}, but the GAN improvements are \textbf{different
+interventions}, and the sharpest shared finding --- \textbf{a better generator
+degrading a capable classifier} --- currently rests on single/low-seed runs on each
+side (CovidGAN's projection-600 drop, DDSM's improved-GAN reversal). Combining the two
+is therefore about making them \emph{one} experiment:
+
+\begin{enumerate}[nosep,leftmargin=1.6em]
+  \item \textbf{Unify the improved-GAN recipe across datasets:} port the projection
+        + noise-1.0 recipe (\code{stage2/gan\_projection.py}) onto DDSM and/or DDSM's
+        spectral-norm+kernel/stride variant onto CovidGAN, so ``improved GAN'' means
+        the same thing on both sides.
+  \item \textbf{Run one shared grid on both datasets:} \{baseline GAN, improved GAN\}
+        $\times$ \{frozen, unfrozen classifier\}, \textbf{multi-seed}, reporting
+        AD-vs-SA on each test set. This directly closes the two [\,!\,] COVID GAPs
+        (Section~\ref{sec:ddsmreversal}), bringing COVID up to DDSM's power.
+  \item \textbf{Nail down the shared reversal:} multi-seeding the grid is exactly what
+        confirms whether ``better GAN $\to$ worse downstream'' is a real cross-dataset
+        phenomenon or two unlucky draws; if real, test the dilution hypothesis by
+        varying the real:synthetic ratio.
+\end{enumerate}
+
+\noindent The payoff is a single table --- two datasets $\times$ two GAN qualities
+$\times$ two classifier capacities, matched protocol, error bars --- stating the
+project's unified claim quantitatively instead of by cross-referencing two parallel
+logs.
+
 % =====================================================================
 \section{Discussion}
 \label{sec:discussion}
@@ -892,6 +1276,39 @@ appear to suppress it. Comparing three regimes on identical data --- frozen
 (Stage~1), uf=1, uf=2 --- plus the scarcity sweep is what lets us say this with
 some confidence.
 
+\paragraph{Generation quality does not predict downstream benefit --- the project's
+strongest cross-dataset finding.} This holds on \emph{both} datasets. On COVID, FID
+halved and the transfer probe rose 55$\to$81\% with \emph{zero or negative}
+downstream change --- and the projection-600 generator, best by every generator-side
+metric, made both the frozen and unfrozen classifier \emph{worse}
+(Section~\ref{sec:trackBresults}). On DDSM, a 10--30$\times$ more stable,
+better-PCA-aligned generator \emph{helped} at matched epochs yet \emph{hurt} the
+high-capacity classifier (Section~\ref{sec:ddsmcap}). Both datasets independently
+produced the same striking reversal: \textbf{a generator that is better by every
+generator-side metric (FID, transfer probe, loss stability, PCA alignment) making the
+classifier worse.} Those metrics measure the \emph{generator}; only an AD-vs-SA
+comparison measures the paper's actual claim.
+
+\paragraph{The failure is not an artifact of our COVID data.} The whole reason for
+the second dataset was the anomaly-A hypothesis --- that our high, augmentation-proof
+baseline came from a \emph{cleaner, more separable} modern COVID set
+(Section~\ref{sec:ddsm}). If that were the sole cause, the naive +10 setup should have
+behaved differently on independent data. It did not: it \textbf{failed on DDSM too},
+and every COVID conclusion that was checked there \textbf{held on independent data}
+(Section~\ref{sec:ddsm}). So the failure to reproduce is a property of the
+\emph{method under these conditions}, not of our particular dataset. The paper's claim
+reproduces \emph{in kind, not in magnitude, and only under conditions}: +2.19 on COVID
+(uf=2, 5-seed), and on DDSM the first reproducible win (unfrozen + baseline-GAN) plus a
++6.9 matched-epoch GAN-architecture gain.
+
+\paragraph{Two knobs govern whether augmentation helps.} \emph{Capacity:} unfreezing
+the encoder raised the baseline on \emph{both} datasets and is the precondition for
+augmentation to help at all --- frozen heads stay flat or, on scarce data, get worse.
+\emph{Headroom:} the paper's +10 is a data-starved, low-baseline regime; it is
+reproducible \emph{in kind but not in magnitude} on data (either dataset) that is not
+starved. The scarcity sweep on COVID is consistent with this: the lift grows as the
+baseline weakens.
+
 \paragraph{On the dataset.} We reconstructed on the paper's own cited sources, not
 substitutes: the paper merged three public datasets --- Cohen's IEEE
 \code{covid-chestxray-dataset}, the Kaggle COVID-19 Radiography Database, and
@@ -904,9 +1321,25 @@ something we can fully undo, since the authors published no image-level manifest
 their exact 403/721 selection.
 
 \paragraph{Limitations and future work.} Numbers are 5-seed (full data) / 3-seed
-(scarcity) means, and the 10\% scarcity point is noisy; a proper significance test
-and more seeds there would strengthen the claims. Two concrete next steps:
+(scarcity) means on COVID and 2-seed on DDSM, and the 10\% scarcity point is noisy; a
+proper significance test and more seeds would strengthen the claims. Concrete next
+steps:
 \begin{itemize}[nosep,leftmargin=1.4em]
+  \item \textbf{Close the two [\,!\,] COVID GAPs (Sections~\ref{sec:ddsmreversal}).}
+        Two experiments currently \emph{lead} on the second dataset (two seeds) rather
+        than the primary one: the ``better-GAN-hurts'' reversal (COVID single-seed, no
+        mechanism probe) and the capacity~$\times$~GAN-source grid (COVID single-seed).
+        Re-run both on COVID multi-seed, with a COVID synthetic-only probe of the
+        projection 300-vs-600 pools, so the primary dataset leads at the power DDSM
+        already has.
+  \item \textbf{Combine into one matrix (Section~\ref{sec:combine}).} Unify the
+        improved-GAN recipe across datasets and run the shared \{GAN\}~$\times$~\{classifier\}
+        grid, multi-seed, on both --- the single most valuable remaining experiment.
+        Then test the dilution hypothesis by varying the real:synthetic ratio (untested
+        levers: cap synthetic to $\sim$1$\times$ the real count, or augment only the
+        minority class).
+  \item \textbf{Replicate the scarcity sweep on DDSM.} The data-scarcity curve
+        (Test~7) is COVID-only; a second-dataset check would test that conclusion too.
   \item \textbf{Independent-dataset validation.} The main open question (anomaly~A,
         Section~\ref{sec:caveat}) is whether the strong baseline reflects real
         transferable pathology or a dataset-specific fine-scale artifact. The way to
@@ -965,6 +1398,33 @@ python -m stage2.compare_results
 \noindent Ablations: \code{--unfreeze-blocks \{0..5\}} (0 = Stage~1 behaviour + BN
 head); \code{--no-head-bn} drops the BatchNorm.
 
+\medskip
+\noindent\textbf{Stage 2 (improved GAN --- Track B).}
+\begin{lstlisting}[language=bash]
+# improved AC-GAN (noise 1.0 + DiffAugment + spectral norm)
+python -m stage2.train_gan_manual --disc acgan --out-dir runs/gan_acgan --epochs 300
+# projection discriminator (removes the fingerprint incentive); resume 300->600
+python -m stage2.train_gan_manual --disc projection --out-dir runs/gan_projection --epochs 300
+python -m stage2.train_gan_manual --disc projection --out-dir runs/gan_projection \
+    --resume runs/gan_projection/checkpoints/covidgan_epoch0300.pt --epochs 600
+# sample each generator into a synthetic pool
+python -m stage2.generate_improved --checkpoint runs/gan_projection/checkpoints/covidgan_final.pt \
+    --out-dir data/synth_projection
+# generator quality: FID + the synthetic-only TRANSFER probe (train on synth, test on real)
+python evaluate_fid.py --real-manifest data/manifest.csv --real-split test --synthetic-dir data/synth_projection
+python -m stage2.synthetic_only_probe --synthetic-dir data/synth_projection --out-dir runs/probe_projection
+# frozen-head scarcity sweep (shows the best pool HURTS a frozen classifier)
+python -m stage2.data_scarcity --frozen --synthetic-dir data/synth_projection \
+    --fractions 0.1 0.25 0.5 1.0 --seeds 0 1 2
+\end{lstlisting}
+
+\medskip
+\noindent\textbf{Line 2 (DDSM generalization).} In the separate
+\code{DDSM-ACGAN-Pytorch} repo: \code{prepare\_ddsm.py} (build ROI splits from the
+CBIS-DDSM CSVs) $\to$ \code{train\_gan.py} (baseline vs \code{models\_improved.py}
+spectral-norm variant) $\to$ \code{generate\_synthetic.py} $\to$
+\code{train\_classifier.py} / \code{multiseed.py} (frozen vs unfrozen, AD vs SA).
+
 \FloatBarrier % flush every pending figure/table before the reference list
 
 % =====================================================================
@@ -976,15 +1436,26 @@ head); \code{--no-head-bn} drops the BatchNorm.
         Covid-19 Detection,'' \emph{IEEE Access}, vol.~8, pp.~91916--91923, 2020.
   \item A.~Odena, C.~Olah, J.~Shlens, ``Conditional Image Synthesis with Auxiliary
         Classifier GANs,'' \emph{ICML}, 2017.
+  \item T.~Miyato, M.~Koyama, ``cGANs with Projection Discriminator,'' \emph{ICLR},
+        2018. (Projection conditioning --- CovidGAN Section~\ref{sec:trackBresults}.)
   \item K.~Simonyan, A.~Zisserman, ``Very Deep Convolutional Networks for
         Large-Scale Image Recognition'' (VGG16), \emph{ICLR}, 2015.
   \item M.~Heusel, H.~Ramsauer, T.~Unterthiner, B.~Nessler, S.~Hochreiter, ``GANs
         Trained by a Two Time-Scale Update Rule Converge to a Local Nash
         Equilibrium'' (FID), \emph{NeurIPS}, 2017.
+  \item T.~Miyato, T.~Kataoka, M.~Koyama, Y.~Yoshida, ``Spectral Normalization for
+        Generative Adversarial Networks,'' \emph{ICLR}, 2018.
+  \item A.~Odena, V.~Dumoulin, C.~Olah, ``Deconvolution and Checkerboard Artifacts,''
+        \emph{Distill}, 2016.
+  \item S.~Zhao, Z.~Liu, J.~Lin, J.-Y.~Zhu, S.~Han, ``Differentiable Augmentation for
+        Data-Efficient GAN Training'' (DiffAugment), \emph{NeurIPS}, 2020.
   \item T.~Rahman, M.~E.~H.~Chowdhury et al., ``COVID-19 Radiography Database,''
         Kaggle. (Real CXR dataset used for reconstruction.)
   \item J.~P.~Cohen, P.~Morrison, L.~Dao, ``COVID-19 Image Data Collection''
         (ieee8023/covid-chestxray-dataset). (A source of the COVID class.)
+  \item R.~S.~Lee, F.~Gimenez, A.~Hsu et al., ``A curated mammography data set for use
+        in computer-aided detection and diagnosis research'' (CBIS-DDSM),
+        \emph{Scientific Data}, 2017. (DDSM generalization line, Section~\ref{sec:ddsm}.)
 \end{enumerate}
 
 \end{document}
